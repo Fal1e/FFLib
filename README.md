@@ -31,3 +31,4 @@
     git clone https://github.com/Fal1e/FFLib.git
     ```
 2.  Поместите содержимое папки `FFLib` в соответствующую директорию аддонов Garry's Mod (`garrysmod/addons/`).
+3.  Для корректной работы рекомендуется подписаться на [Контент FFLib](https://steamcommunity.com/sharedfiles/filedetails/?id=3448842570)
