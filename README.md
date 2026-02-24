@@ -1,8 +1,6 @@
 # FFLib (F.Fal1eLibrary)
 ![FFLib Preview](https://images.steamusercontent.com/ugc/63719325782838181/AAB5864489D2933AD1D8EC5E5DC0FFC230DD803A/?imw=5000&imh=5000&ima=fit&impolicy=Letterbox&imcolor=%23000000&letterbox=false)
 
-это будет сразу отображать картинку?
-
 ## The library of modules for Garry's Mod
 ### ONLY RU LANG
 
