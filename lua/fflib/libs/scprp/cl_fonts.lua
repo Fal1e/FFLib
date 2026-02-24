@@ -1,0 +1,1 @@
+FFLib.Fonts:Register('SCPRP', 'Finlandica Medium', 550, true)

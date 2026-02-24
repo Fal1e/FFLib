@@ -1,0 +1,410 @@
+local gmod = gmod
+local math = math
+local table = table
+local file = file
+local timer = timer
+local pairs = pairs
+local setmetatable = setmetatable
+local isstring = isstring
+local isnumber = isnumber
+local isbool = isbool
+local isfunction = isfunction
+local type = type
+local ErrorNoHaltWithStack = ErrorNoHaltWithStack
+local ErrorNoHalt = ErrorNoHalt
+local print = print
+local GProtectedCall = ProtectedCall
+local tostring = tostring
+local error = error
+
+local _GLOBAL = _G
+
+local EMPTY_FUNC = function() end
+
+do
+	HOOK_MONITOR_HIGH = -2
+	HOOK_HIGH = -1
+	HOOK_NORMAL = 0
+	HOOK_LOW = 1
+	HOOK_MONITOR_LOW = 2
+
+	PRE_HOOK = {-4}
+	PRE_HOOK_RETURN = {-3}
+	NORMAL_HOOK = {0}
+	POST_HOOK_RETURN = {3}
+	POST_HOOK = {4}
+end
+
+local PRE_HOOK = PRE_HOOK
+local PRE_HOOK_RETURN = PRE_HOOK_RETURN
+local NORMAL_HOOK = NORMAL_HOOK
+local POST_HOOK_RETURN = POST_HOOK_RETURN
+local POST_HOOK = POST_HOOK
+
+local NORMAL_PRIORITIES_ORDER = {
+	[PRE_HOOK] = 1, [HOOK_MONITOR_HIGH] = 2, [PRE_HOOK_RETURN] = 3, [HOOK_HIGH] = 4,
+	[NORMAL_HOOK] = 5, [HOOK_NORMAL] = 5, [HOOK_LOW] = 6, [HOOK_MONITOR_LOW] = 7,
+}
+
+local EVENTS_LISTS = {
+	[POST_HOOK_RETURN] = 2,
+	[POST_HOOK] = 3,
+}
+for k, v in pairs(NORMAL_PRIORITIES_ORDER) do
+	EVENTS_LISTS[k] = 1
+end
+
+local MAIN_PRIORITIES = {[PRE_HOOK] = true, [PRE_HOOK_RETURN] = true, [NORMAL_HOOK] = true, [POST_HOOK_RETURN] = true, [POST_HOOK] = true}
+
+local PRIORITIES_NAMES = {
+	[PRE_HOOK] = "PRE_HOOK", [HOOK_MONITOR_HIGH] = "HOOK_MONITOR_HIGH", [PRE_HOOK_RETURN] = "PRE_HOOK_RETURN",
+	[HOOK_HIGH] = "HOOK_HIGH", [NORMAL_HOOK] = "NORMAL_HOOK", [HOOK_NORMAL] = "HOOK_NORMAL",
+	[HOOK_LOW] = "HOOK_LOW", [HOOK_MONITOR_LOW] = "HOOK_MONITOR_LOW", [POST_HOOK_RETURN] = "POST_HOOK_RETURN", [POST_HOOK] = "POST_HOOK",
+}
+
+module("hook")
+
+Author = "Srlion"
+Version = "3.0.0"
+
+local events = {}
+
+local node_meta = {
+	__index = function(node, key)
+		if key ~= 0 then
+			error("attempt to index a node with a key that is not 0: " .. tostring(key))
+		end
+		local event = node.event
+		local hook_table = event[node.name]
+		if not hook_table then return EMPTY_FUNC end
+
+		if hook_table.priority ~= node.priority then
+			return EMPTY_FUNC
+		end
+
+		return hook_table.func
+	end
+}
+local function CopyPriorityList(self, priority)
+	local old_list = self[EVENTS_LISTS[priority]]
+	local new_list = {}; do
+		local j = 0
+		for i = 1, old_list[0] do
+			local node = old_list[i]
+			if not node.removed then
+				j = j + 1
+				local new_node = {
+					[0] = node[0],
+					event = node.event,
+					name = node.name,
+					priority = node.priority,
+					idx = j,
+				}
+				new_list[j] = new_node
+				local hook_table = node.event[node.name]
+				hook_table.node = new_node
+			end
+			node[0] = nil
+			setmetatable(node, node_meta)
+		end
+		new_list[0] = j
+	end
+	local list_index = EVENTS_LISTS[priority]
+	self[list_index] = new_list
+end
+
+local function new_event(name)
+	if not events[name] then
+		local function GetPriorityList(self, priority)
+			return self[EVENTS_LISTS[priority]]
+		end
+
+		local lists = {
+			[1] = {[0] = 0},
+			[2] = {[0] = 0},
+			[3] = {[0] = 0},
+
+			CopyPriorityList = CopyPriorityList,
+			GetPriorityList = GetPriorityList,
+		}
+
+		events[name] = {[0] = lists}
+	end
+	return events[name]
+end
+
+function GetTable()
+	local new_table = {}
+	for event_name, event in pairs(events) do
+		local hooks = {}
+		for i = 1, 3 do
+			local list = event[0][i]
+			for j = 1, list[0] do
+				local node = list[j]
+				hooks[node.name] = event[node.name].real_func
+			end
+		end
+		new_table[event_name] = hooks
+	end
+	return new_table
+end
+
+function Remove(event_name, name)
+	if not isstring(event_name) then ErrorNoHaltWithStack("bad argument #1 to 'Remove' (string expected, got " .. type(event_name) .. ")") return end
+
+	local notValid = isnumber(name) or isbool(name) or isfunction(name) or not name.IsValid
+	if not isstring(name) and notValid then ErrorNoHaltWithStack("bad argument #2 to 'Remove' (string expected, got " .. type(name) .. ")") return end
+
+	local event = events[event_name]
+	if not event then return end
+
+	local hook_table = event[name]
+	if not hook_table then return end
+
+	hook_table.node.removed = true
+
+	event[0]:CopyPriorityList(hook_table.priority)
+
+	event[name] = nil
+end
+
+function Add(event_name, name, func, priority)
+	if not isstring(event_name) then ErrorNoHaltWithStack("bad argument #1 to 'Add' (string expected, got " .. type(event_name) .. ")") return end
+	if not isfunction(func) then ErrorNoHaltWithStack("bad argument #3 to 'Add' (function expected, got " .. type(func) .. ")") return end
+
+	local notValid = name == nil or isnumber(name) or isbool(name) or isfunction(name) or not name.IsValid
+	if not isstring(name) and notValid then ErrorNoHaltWithStack("bad argument #2 to 'Add' (string expected, got " .. type(name) .. ")") return end
+
+	local real_func = func
+	if not isstring(name) then
+		func = function(...)
+			local isvalid = name.IsValid
+			if isvalid and isvalid(name) then
+				return real_func(name, ...)
+			end
+			Remove(event_name, name)
+		end
+	end
+
+	if isnumber(priority) then
+		priority = math.floor(priority)
+		if priority < -2 then priority = -2 end
+		if priority > 2 then priority = 2 end
+		if priority == -2 or priority == 2 then
+			local old_func = func
+			func = function(...)
+				old_func(...)
+			end
+		end
+	elseif MAIN_PRIORITIES[priority] then
+		if priority == PRE_HOOK then
+			local old_func = func
+			func = function(...)
+				old_func(...)
+			end
+		end
+		priority = priority
+	else
+		if priority ~= nil then
+			ErrorNoHaltWithStack("bad argument #4 to 'Add' (priority expected, got " .. type(priority) .. ")")
+		end
+		priority = NORMAL_HOOK
+	end
+
+	local event = new_event(event_name)
+
+	do
+		local hook_info = event[name]
+		if hook_info then
+			if hook_info.priority == priority then
+				hook_info.func = func
+				hook_info.real_func = real_func
+				hook_info.node[0] = func
+				return
+			end
+			Remove(event_name, name)
+		else
+			event[0]:CopyPriorityList(priority)
+		end
+	end
+
+	local hook_list = event[0]:GetPriorityList(priority)
+
+	local hk_n = hook_list[0] + 1
+	local node = {
+		[0] = func,
+		event = event,
+		name = name,
+		priority = priority,
+		idx = hk_n,
+	}
+	hook_list[hk_n] = node
+	hook_list[0] = hk_n
+
+	event[name] = {
+		name = name,
+		priority = priority,
+		func = func,
+		real_func = real_func,
+		node = node,
+	}
+
+	if NORMAL_PRIORITIES_ORDER[priority] then
+		table.sort(hook_list, function(a, b)
+			local a_order = NORMAL_PRIORITIES_ORDER[a.priority]
+			local b_order = NORMAL_PRIORITIES_ORDER[b.priority]
+			if a_order == b_order then
+				return a.idx < b.idx
+			end
+			return a_order < b_order
+		end)
+	end
+end
+
+local gamemode_cache
+function Run(name, ...)
+	if not gamemode_cache then
+		gamemode_cache = gmod and gmod.GetGamemode() or nil
+	end
+	return Call(name, gamemode_cache, ...)
+end
+
+function ProtectedRun(name, ...)
+	if not gamemode_cache then
+		gamemode_cache = gmod and gmod.GetGamemode() or nil
+	end
+	return ProtectedCall(name, gamemode_cache, ...)
+end
+
+function Call(event_name, gm, ...)
+	local event = events[event_name]
+	if not event then
+		if not gm then return end
+		local gm_func = gm[event_name]
+		if not gm_func then return end
+		return gm_func(gm, ...)
+	end
+
+	local lists = event[0]
+
+	local hook_name, a, b, c, d, e, f
+
+	do
+		local normal_hooks = lists[1]
+		for i = 1, normal_hooks[0] do
+			local node = normal_hooks[i]
+			local n_a, n_b, n_c, n_d, n_e, n_f = node[0](...)
+			if n_a ~= nil then
+				hook_name, a, b, c, d, e, f = node.name, n_a, n_b, n_c, n_d, n_e, n_f
+				break
+			end
+		end
+	end
+
+	if not hook_name and gm then
+		local gm_func = gm[event_name]
+		if gm_func then
+			hook_name, a, b, c, d, e, f = gm, gm_func(gm, ...)
+		end
+	end
+
+	if lists[2][0] == 0 and lists[3][0] == 0 then
+		return a, b, c, d, e, f
+	end
+
+	local returned_values = {hook_name, a, b, c, d, e, f}
+
+	do
+		local post_return_hooks = lists[2]
+		for i = 1, post_return_hooks[0] do
+			local node = post_return_hooks[i]
+			local n_a, n_b, n_c, n_d, n_e, n_f = node[0](returned_values, ...)
+			if n_a ~= nil then
+				a, b, c, d, e, f = n_a, n_b, n_c, n_d, n_e, n_f
+				returned_values = {node.name, a, b, c, d, e, f}
+				break
+			end
+		end
+	end
+
+	do
+		local post_hooks = lists[3]
+		for i = 1, post_hooks[0] do
+			local node = post_hooks[i]
+			node[0](returned_values, ...)
+		end
+	end
+
+	return a, b, c, d, e, f
+end
+
+function ProtectedCall(event_name, gm, ...)
+	local event = events[event_name]
+	if not event then
+		if not gm then return end
+		local gm_func = gm[event_name]
+		if not gm_func then return end
+		GProtectedCall(gm_func, gm, ...)
+		return
+	end
+
+	local lists = event[0]
+
+	do
+		local normal_hooks = lists[1]
+		for i = 1, normal_hooks[0] do
+			local node = normal_hooks[i]
+			GProtectedCall(node[0], ...)
+		end
+	end
+
+	if gm then
+		local gm_func = gm[event_name]
+		if gm_func then
+			GProtectedCall(gm_func, gm, ...)
+		end
+	end
+
+	local returned_values = {nil, nil, nil, nil, nil, nil, nil}
+
+	do
+		local post_return_hooks = lists[2]
+		for i = 1, post_return_hooks[0] do
+			local node = post_return_hooks[i]
+			GProtectedCall(node[0], returned_values, ...)
+		end
+	end
+
+	do
+		local post_hooks = lists[3]
+		for i = 1, post_hooks[0] do
+			local node = post_hooks[i]
+			GProtectedCall(node[0], returned_values, ...)
+		end
+	end
+end
+
+function Debug(event_name)
+	local event = events[event_name]
+	if not event then
+		print("No event with that name")
+		return
+	end
+
+	local lists = event[0]
+	print("------START------")
+	print("event:", event_name)
+	for i = 1, 3 do
+		local list = lists[i]
+		for j = 1, list[0] do
+			local node = list[j]
+			print("----------")
+			print("   name:", node.name)
+			print("   func:", node[0])
+			print("   real_func:", event[node.name].real_func)
+			print("   priority:", PRIORITIES_NAMES[node.priority])
+			print("   idx:", node.idx)
+		end
+	end
+	print("-------END-------")
+end

@@ -1,0 +1,1 @@
+FFLib.Fonts:Register('DarkRP', 'Museo Cyrl 500', 500, true)
